@@ -18,37 +18,53 @@ const FileUpload = ({ onFileSelect }) => {
   };
 
   const validateFile = (file) => {
-    const validTypes = ['application/epub+zip'];
-    if (!validTypes.includes(file.type)) {
+    // We'll be more lenient with file type checking since EPUB mime types can vary
+    if (!file.name.toLowerCase().endsWith('.epub')) {
       setError('Please upload an EPUB file');
+      return false;
+    }
+    if (file.size > 50 * 1024 * 1024) { // 50MB limit
+      setError('File size must be less than 50MB');
       return false;
     }
     setError('');
     return true;
   };
 
-  const handleDrop = (e) => {
+  const processFile = async (file) => {
+    if (!validateFile(file)) return;
+
+    try {
+      // Read the file as ArrayBuffer
+      const buffer = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = e => resolve(e.target.result);
+        reader.onerror = e => reject(e);
+        reader.readAsArrayBuffer(file);
+      });
+
+      setSelectedFile(file);
+      onFileSelect(buffer, file.name);
+    } catch (error) {
+      console.error('Error processing file:', error);
+      setError('Error processing file');
+    }
+  };
+
+  const handleDrop = async (e) => {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
 
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      const file = e.dataTransfer.files[0];
-      if (validateFile(file)) {
-        setSelectedFile(file);
-        onFileSelect(file);
-      }
+      await processFile(e.dataTransfer.files[0]);
     }
   };
 
-  const handleChange = (e) => {
+  const handleChange = async (e) => {
     e.preventDefault();
     if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      if (validateFile(file)) {
-        setSelectedFile(file);
-        onFileSelect(file);
-      }
+      await processFile(e.target.files[0]);
     }
   };
 
@@ -95,6 +111,9 @@ const FileUpload = ({ onFileSelect }) => {
               >
                 browse
               </button>
+            </p>
+            <p className="mt-1 text-xs text-gray-500">
+              Maximum file size: 50MB
             </p>
           </div>
         ) : (
