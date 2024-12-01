@@ -22,7 +22,6 @@ class EPUBParser {
         this.book.loaded.spine,
         this.book.loaded.metadata,
         this.book.loaded.navigation,
-        this.book.loaded.cover,
         this.book.loaded.resources
       ]);
       console.log('All book components loaded');
@@ -30,10 +29,6 @@ class EPUBParser {
       // Basic validation
       if (!this.book.spine) {
         throw new Error('Invalid EPUB: No spine found');
-      }
-
-      if (!this.book.packaging.metadata) {
-        console.warn('No metadata found in EPUB');
       }
 
       // Parse the book structure
@@ -48,21 +43,12 @@ class EPUBParser {
     }
   }
 
-  readFileAsArrayBuffer(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => resolve(e.target.result);
-      reader.onerror = (e) => reject(new Error('Error reading file'));
-      reader.readAsArrayBuffer(file);
-    });
-  }
-
   async parseBookStructure() {
     try {
       console.log('Creating initial structure object');
       const structure = {
-        title: this.book.packaging.metadata.title,
-        metadata: this.book.packaging.metadata,
+        title: this.book.package.metadata.title,
+        metadata: this.book.package.metadata,
         levels: {
           book: {
             content: '',
@@ -74,16 +60,24 @@ class EPUBParser {
         }
       };
 
-      const spine = this.book.spine;
-      console.log(`Starting to process spine items (chapters). Total: ${spine.items.length}`);
+      // Filter out any non-content spine items (like nav or cover)
+      const contentItems = this.book.spine.items.filter(item => {
+        const href = item.href || item.url;
+        return href && !href.includes('nav') && !href.includes('cover');
+      });
 
-      for (let i = 0; i < spine.items.length; i++) {
-        const spineItem = spine.items[i];
-        console.log(`Processing chapter ${i + 1}/${spine.items.length}:`, spineItem.href);
+      console.log(`Starting to process content items. Total: ${contentItems.length}`);
+      console.log('All spine items:', contentItems.map(item => item.href || item.url));
+
+      // Process each chapter
+      for (let i = 0; i < contentItems.length; i++) {
+        const spineItem = contentItems[i];
+        const itemHref = spineItem.href || spineItem.url;
+        console.log(`Processing chapter ${i + 1}/${contentItems.length}:`, itemHref);
 
         try {
           const chapter = {
-            id: spineItem.id,
+            id: spineItem.index,
             href: spineItem.href,
             title: await this.findTitleFromToc(spineItem.href) || `Chapter ${i + 1}`,
             content: '',
@@ -92,12 +86,14 @@ class EPUBParser {
           };
 
           console.log(`Loading content for chapter: ${chapter.title}`);
-          const chapterDoc = await this.getChapterDocument(spineItem);
-          chapter.content = this.extractCleanText(chapterDoc);
+          const chapterText = await this.getChapterContent(spineItem.href);
+          chapter.content = chapterText;
           console.log(`Chapter content loaded, length: ${chapter.content.length} characters`);
 
-          // Parse sections
-          const sections = this.parseSections(chapterDoc);
+          // Parse sections using a temporary DOM element
+          const tempDiv = document.createElement('div');
+          tempDiv.innerHTML = chapterText;
+          const sections = this.parseSections(tempDiv);
           chapter.sections = sections;
           console.log(`Parsed ${sections.length} sections in chapter`);
 
@@ -125,7 +121,43 @@ class EPUBParser {
     }
   }
 
-  parseSections(doc) {
+  async getChapterContent(href) {
+    try {
+      console.log('Loading chapter content:', href);
+
+      // Get the spine index for this href
+      const index = this.book.spine.items.findIndex(item => {
+        const itemHref = item.href || item.url;
+        return itemHref === href ||
+               itemHref === href.replace(/^text\//, '') ||
+               `text/${itemHref}` === href;
+      });
+
+      if (index === -1) {
+        console.log('Available spine items:',
+          this.book.spine.items.map(item => item.href || item.url)
+        );
+        throw new Error(`Chapter not found: ${href}`);
+      }
+
+      // Use the book's getSection method to get the content
+      const section = await this.book.section(index);
+      if (!section) {
+        throw new Error(`Could not load section for: ${href}`);
+      }
+
+      console.log('Section loaded, getting content...');
+      const content = await section.render();
+      console.log('Content loaded, length:', content?.length || 0);
+
+      return content;
+    } catch (error) {
+      console.error('Error loading chapter content:', error);
+      throw error;
+    }
+  }
+
+  parseSections(element) {
     const sections = [];
     let currentSection = {
       title: '',
@@ -134,29 +166,54 @@ class EPUBParser {
       summaries: []
     };
 
-    Array.from(doc.body.children).forEach(element => {
-      if (this.isHeading(element)) {
-        if (currentSection.content) {
-          sections.push({...currentSection});
-        }
-        currentSection = {
-          title: element.textContent.trim(),
-          content: '',
-          paragraphs: [],
-          summaries: []
-        };
-      } else if (element.tagName === 'P') {
-        const paragraphText = element.textContent.trim();
-        if (paragraphText) {
-          currentSection.paragraphs.push({
-            content: paragraphText,
-            summaries: []
-          });
-          currentSection.content += paragraphText + '\n\n';
-        }
-      }
-    });
+    let inParagraph = false;
+    let paragraphText = '';
 
+    const processNode = (node) => {
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        const tagName = node.tagName.toUpperCase();
+
+        // Handle headings
+        if (/^H[1-3]$/.test(tagName)) {
+          if (currentSection.content) {
+            sections.push({...currentSection});
+          }
+          currentSection = {
+            title: node.textContent.trim(),
+            content: '',
+            paragraphs: [],
+            summaries: []
+          };
+          return;
+        }
+
+        // Handle paragraphs
+        if (tagName === 'P') {
+          inParagraph = true;
+          paragraphText = '';
+        }
+
+        // Process child nodes
+        node.childNodes.forEach(processNode);
+
+        if (tagName === 'P' && inParagraph) {
+          inParagraph = false;
+          if (paragraphText.trim()) {
+            currentSection.paragraphs.push({
+              content: paragraphText.trim(),
+              summaries: []
+            });
+            currentSection.content += paragraphText.trim() + '\n\n';
+          }
+        }
+      } else if (node.nodeType === Node.TEXT_NODE && inParagraph) {
+        paragraphText += node.textContent;
+      }
+    };
+
+    processNode(element);
+
+    // Add the last section if it has content
     if (currentSection.content) {
       sections.push(currentSection);
     }
@@ -164,76 +221,31 @@ class EPUBParser {
     return sections;
   }
 
-  async getChapterDocument(spineItem) {
-    try {
-      console.log('Loading chapter HTML:', spineItem.href);
-      const html = await spineItem.load();
-      console.log('Parsing chapter HTML to DOM');
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(html, 'text/html');
-      console.log('Chapter document parsed successfully');
-      return doc;
-    } catch (error) {
-      console.error('Error in getChapterDocument:', error);
-      throw error;
-    }
-  }
-
-  isHeading(element) {
-    return /^H[1-3]$/.test(element.tagName);
-  }
-
   async findTitleFromToc(href) {
     try {
-      console.log('Finding title for href:', href);
-      const toc = await this.book.navigation.toc;
+      const navigation = await this.book.navigation;
+      if (!navigation || !navigation.toc) {
+        return null;
+      }
 
-      const findTitle = (items) => {
+      const findInItems = (items) => {
         for (const item of items) {
           if (item.href && item.href.includes(href)) {
-            console.log('Found title:', item.label);
             return item.label;
           }
-          if (item.subitems && item.subitems.length > 0) {
-            const subTitle = findTitle(item.subitems);
-            if (subTitle) return subTitle;
+          if (item.subitems) {
+            const result = findInItems(item.subitems);
+            if (result) return result;
           }
         }
         return null;
       };
 
-      const title = findTitle(toc);
-      console.log('Title search result:', title);
-      return title;
+      return findInItems(navigation.toc) || null;
     } catch (error) {
-      console.error('Error in findTitleFromToc:', error);
+      console.error('Error finding title:', error);
       return null;
     }
-  }
-
-  extractCleanText(doc) {
-    try {
-      // Remove scripts and styles
-      doc.querySelectorAll('script, style').forEach(el => el.remove());
-
-      // Get text content
-      let text = doc.body.textContent;
-
-      // Clean up whitespace
-      text = text.replace(/\s+/g, ' ').trim();
-      console.log(`Extracted ${text.length} characters of clean text`);
-
-      return text;
-    } catch (error) {
-      console.error('Error in extractCleanText:', error);
-      throw error;
-    }
-  }
-
-  getReadingTimeEstimate(text) {
-    const wordsPerMinute = 200;
-    const wordCount = text.trim().split(/\s+/).length;
-    return Math.ceil(wordCount / wordsPerMinute);
   }
 
   exportStructure() {
@@ -241,8 +253,8 @@ class EPUBParser {
     return {
       structure: this.structure,
       metadata: {
-        title: this.book.packaging.metadata.title,
-        creator: this.book.packaging.metadata.creator,
+        title: this.book.package.metadata.title,
+        creator: this.book.package.metadata.creator,
         exportDate: new Date().toISOString()
       }
     };
