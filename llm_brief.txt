@@ -1,0 +1,61 @@
+# LLM brief
+
+Build a webapp based on React that:
+* Allows user input of OpenAI api in a password field
+* Allows user upload of an ebook or pdf
+* Uses the OpenAI api to:
+   * Separately summarise each paragraph
+   * Separately summarise each section
+   * Separately summarise each chapter
+   * And One summary for the entire text
+* Creates a graphical user interface for this "Fractal Book", in which you start with a summary of the entire text, you can click on that summary to divide it up into chapter-wise summaries, which can in turn be clicked on to get the section-wise summaries, which can in turn be clicked on for paragraph-wise summaries, which can in turn be clicked on to get the original text
+
+Further details
+
+should support PDF and EPUB
+
+It should work out what the structure is (e.g. for PDFs, it may be WHOLE ⇒ SECTION ⇒ PARAGRAPH >> SENTENCE, but for epub it may be WHOLE ⇒ CHAPTER ⇒ SECTION ⇒ PARAGRAPH ⇒ SENTENCE)
+
+For documents without clear section markers, I'm not sure - what do you think we should do?
+
+use gpt-4o-mini to start with as the model
+
+yes, there should be a way to export the generated summaries in json format, and then reupload them later
+
+the visual interface should be a beautiful interface that shows the main "level" focused on, with the level above and level below just visible in gray and can click to go up or down a level with a  nice smooth animation
+
+I am testing this using localhost in PyCharm
+
+OK don't worry about cases where there are no natural chapter boundaries. Instead we will just use EPUB which always have chapters
+
+Don't allow users to edit the summaries
+
+JSON export should just export summaries, not the API key
+
+Include a progress indicator
+
+OpenAI API calls can be handled client side (don't worry about the security issue)
+
+OK, no more questions, now first provide me a plan of action (e.g. which files you will make). You don't have a large enough context window to write everything in one message, so don't yet make the files.
+
+Project structure:
+src/
+├── components/
+│   ├── App.jsx                   # Main application container
+│   ├── APIKeyInput.jsx           # Secure input for OpenAI API key
+│   ├── FileUpload.jsx            # EPUB file upload handler
+│   ├── FractalView/
+│   │   ├── FractalView.jsx       # Main visualization component
+│   │   ├── LevelView.jsx         # Single level display
+│   │   └── Navigation.jsx        # Level navigation controls
+│   ├── ProgressIndicator.jsx     # Progress bar and status
+│   └── ExportImport.jsx          # JSON export/import functionality
+├── services/
+│   ├── epubParser.js            # EPUB file parsing logic
+│   ├── openai.js                # OpenAI API integration
+│   └── summarizer.js            # Text summarization logic
+├── utils/
+│   ├── constants.js             # Configuration constants
+│   └── animations.js            # Animation utilities
+└── styles/
+    └── tailwind.css            # Tailwind CSS styles
