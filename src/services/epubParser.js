@@ -107,8 +107,8 @@ class EPUBParser {
 
       console.log('Combining all text for book-level summary');
       structure.levels.book.content = structure.levels.chapters
-        .map(chapter => chapter.content)
-        .join('\n\n');
+          .map(chapter => chapter.content)
+          .join('\n\n');
 
       console.log('Structure parsing complete');
       console.log('Total chapters:', structure.levels.chapters.length);
@@ -129,13 +129,13 @@ class EPUBParser {
       const index = this.book.spine.items.findIndex(item => {
         const itemHref = item.href || item.url;
         return itemHref === href ||
-               itemHref === href.replace(/^text\//, '') ||
-               `text/${itemHref}` === href;
+            itemHref === href.replace(/^text\//, '') ||
+            `text/${itemHref}` === href;
       });
 
       if (index === -1) {
         console.log('Available spine items:',
-          this.book.spine.items.map(item => item.href || item.url)
+            this.book.spine.items.map(item => item.href || item.url)
         );
         throw new Error(`Chapter not found: ${href}`);
       }
@@ -272,6 +272,10 @@ class EPUBParser {
 
   exportStructure() {
     console.log('Exporting book structure');
+    console.log('Book title:', this.book.package.metadata.title);
+    console.log('Book creator:', this.book.package.metadata.creator);
+    console.log('Structure details:', JSON.stringify(this.structure, null, 2));
+
     return {
       structure: this.structure,
       metadata: {
@@ -284,9 +288,18 @@ class EPUBParser {
 
   importStructure(exportedData) {
     console.log('Importing book structure');
+
     if (!exportedData.structure || !exportedData.metadata) {
       throw new Error('Invalid export data format');
     }
+
+    console.log('Imported metadata:', {
+      title: exportedData.metadata.title,
+      creator: exportedData.metadata.creator,
+      exportDate: exportedData.metadata.exportDate
+    });
+    console.log('Imported structure:', JSON.stringify(exportedData.structure, null, 2));
+
     this.structure = exportedData.structure;
     return this.structure;
   }
