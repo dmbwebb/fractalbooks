@@ -2,7 +2,7 @@
 
 // API Configuration
 export const API_CONFIG = {
-  OPENAI_MODEL: 'gpt-4-0125-preview',
+  OPENAI_MODEL: 'gpt-4o-mini',
   API_BASE_URL: 'https://api.openai.com/v1',
   MAX_TOKENS: {
     PARAGRAPH: 250,
