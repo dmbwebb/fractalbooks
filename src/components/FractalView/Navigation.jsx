@@ -1,57 +1,64 @@
+// Navigation.js
+
 import React from 'react';
-import { ChevronRight, Book, FileText, Layers, Text } from 'lucide-react';  // Changed Paragraph to Text
+import { ChevronRight, Book, FileText, Text } from 'lucide-react';
 
 const Navigation = ({ currentPath, structure, onNavigate }) => {
-  // Get the current level type (book, chapter, section, paragraph)
-  const getCurrentLevel = () => {
-    const depths = {
-      0: 'book',
-      1: 'chapter',
-      2: 'section',
-      3: 'paragraph'
-    };
-    return depths[currentPath.length] || 'book';
+  // Determine current level type
+  // 0 = book, 1 = chapter, 2 = paragraph
+  const level = currentPath.length;
+
+  const getCurrentLevelType = () => {
+    if (level === 0) return 'book';
+    if (level === 1) return 'chapter';
+    return 'paragraph';
   };
 
-  // Get icon for each level type
   const getLevelIcon = (type) => {
     const icons = {
       book: <Book className="w-4 h-4" />,
       chapter: <FileText className="w-4 h-4" />,
-      section: <Layers className="w-4 h-4" />,
-      paragraph: <Text className="w-4 h-4" />  // Changed to Text icon
+      paragraph: <Text className="w-4 h-4" />
     };
-    return icons[type] || icons.book;
+    return icons[type];
   };
 
-  // Build breadcrumb items based on current path
-  const getBreadcrumbs = () => {
-    const breadcrumbs = [{
+  // Build breadcrumbs:
+  // Book (always)
+  // If chapter chosen: add chapter
+  // If paragraph chosen: add paragraph
+  const breadcrumbs = [
+    {
       type: 'book',
       title: structure.title || 'Book',
       path: []
-    }];
+    }
+  ];
 
-    currentPath.forEach((index, depth) => {
-      const level = getCurrentLevel();
-      const currentItem = structure.levels[level][index];
-      breadcrumbs.push({
-        type: level,
-        title: currentItem.title || `${level.charAt(0).toUpperCase() + level.slice(1)} ${index + 1}`,
-        path: currentPath.slice(0, depth + 1)
-      });
+  if (level >= 1) {
+    const chapterIndex = currentPath[0];
+    const chapter = structure.levels.chapters[chapterIndex];
+    breadcrumbs.push({
+      type: 'chapter',
+      title: chapter.title,
+      path: [chapterIndex]
     });
+  }
 
-    return breadcrumbs;
-  };
+  if (level === 2) {
+    const paragraphIndex = currentPath[1];
+    breadcrumbs.push({
+      type: 'paragraph',
+      title: `Paragraph ${paragraphIndex + 1}`,
+      path: [currentPath[0], paragraphIndex]
+    });
+  }
 
   return (
     <div className="w-full bg-white shadow-sm">
-      {/* Top Navigation Bar */}
       <div className="max-w-4xl mx-auto px-4 py-3">
-        {/* Breadcrumb Navigation */}
         <div className="flex items-center space-x-2 text-sm">
-          {getBreadcrumbs().map((item, index) => (
+          {breadcrumbs.map((item, index) => (
             <React.Fragment key={index}>
               {index > 0 && (
                 <ChevronRight className="w-4 h-4 text-gray-400" />
@@ -68,27 +75,19 @@ const Navigation = ({ currentPath, structure, onNavigate }) => {
           ))}
         </div>
 
-        {/* Level Context */}
         <div className="mt-2 flex items-center space-x-4 text-xs text-gray-500">
           <div className="flex items-center space-x-1">
-            {getLevelIcon(getCurrentLevel())}
-            <span>Current Level: {getCurrentLevel()}</span>
+            {getLevelIcon(getCurrentLevelType())}
+            <span>Current Level: {getCurrentLevelType()}</span>
           </div>
-
-          {structure.levels[getCurrentLevel()]?.length > 0 && (
-            <span>
-              {structure.levels[getCurrentLevel()].length} items at this level
-            </span>
-          )}
         </div>
       </div>
 
-      {/* Visual Progress Bar */}
       <div className="h-1 bg-gray-100">
         <div
           className="h-full bg-blue-500 transition-all duration-300"
           style={{
-            width: `${(currentPath.length / 3) * 100}%`
+            width: `${(level / 2) * 100}%`
           }}
         />
       </div>
