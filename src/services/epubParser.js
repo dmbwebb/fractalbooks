@@ -166,6 +166,9 @@ class EPUBParser {
       const bodyElement = tempDiv.querySelector('body');
       const actualContent = bodyElement ? bodyElement.innerHTML : tempDiv.innerHTML;
 
+      // Print out the first 200 characters of the chapter's actual content
+      console.log('Raw chapter content (first 1000 chars):', actualContent.substring(0, 1000));
+
       console.log('Content extracted, length:', actualContent?.length || 0);
       console.log('Content preview:', actualContent?.substring(0, 100));
 
