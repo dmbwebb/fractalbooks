@@ -140,17 +140,36 @@ class EPUBParser {
         throw new Error(`Chapter not found: ${href}`);
       }
 
-      // Use the book's getSection method to get the content
-      const section = await this.book.section(index);
+      // Get the section from the spine
+      const section = this.book.spine.get(index);
       if (!section) {
         throw new Error(`Could not load section for: ${href}`);
       }
 
-      console.log('Section loaded, getting content...');
-      const content = await section.render();
-      console.log('Content loaded, length:', content?.length || 0);
+      // Load the section content before accessing the document
+      await section.load(this.book.load.bind(this.book));
 
-      return content;
+      const doc = section.document;
+      if (!doc) {
+        throw new Error(`Document not loaded for: ${href}`);
+      }
+
+      console.log('Section loaded, getting raw content...');
+      const content = doc.documentElement.outerHTML;
+      console.log('Raw content preview:', content?.substring(0, 100));
+
+      // Create a temporary div to parse the content
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = content;
+
+      // Get just the body content
+      const bodyElement = tempDiv.querySelector('body');
+      const actualContent = bodyElement ? bodyElement.innerHTML : tempDiv.innerHTML;
+
+      console.log('Content extracted, length:', actualContent?.length || 0);
+      console.log('Content preview:', actualContent?.substring(0, 100));
+
+      return actualContent;
     } catch (error) {
       console.error('Error loading chapter content:', error);
       throw error;
