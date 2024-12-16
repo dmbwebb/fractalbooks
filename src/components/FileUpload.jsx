@@ -11,22 +11,27 @@ const FileUpload = ({ onFileSelect }) => {
     e.preventDefault();
     e.stopPropagation();
     if (e.type === "dragenter" || e.type === "dragover") {
+      console.log('[FileUpload] Drag over area');
       setDragActive(true);
     } else if (e.type === "dragleave") {
+      console.log('[FileUpload] Drag left area');
       setDragActive(false);
     }
   };
 
   const validateFile = (file) => {
-    // We'll be more lenient with file type checking since EPUB mime types can vary
+    console.log('[FileUpload] Validating file:', file.name, file.size, file.type);
     if (!file.name.toLowerCase().endsWith('.epub')) {
+      console.log('[FileUpload] Validation failed: not an EPUB file');
       setError('Please upload an EPUB file');
       return false;
     }
     if (file.size > 50 * 1024 * 1024) { // 50MB limit
+      console.log('[FileUpload] Validation failed: file too large');
       setError('File size must be less than 50MB');
       return false;
     }
+    console.log('[FileUpload] File validation passed');
     setError('');
     return true;
   };
@@ -35,19 +40,36 @@ const FileUpload = ({ onFileSelect }) => {
     if (!validateFile(file)) return;
 
     try {
-      // Read the file as ArrayBuffer
+      console.log('[FileUpload] Starting to read file:', file.name);
       const buffer = await new Promise((resolve, reject) => {
         const reader = new FileReader();
-        reader.onload = e => resolve(e.target.result);
-        reader.onerror = e => reject(e);
+
+        reader.onload = (e) => {
+          console.log('[FileUpload] File read successfully');
+          resolve(e.target.result);
+        };
+
+        reader.onerror = (e) => {
+          console.error('[FileUpload] FileReader error event:', e);
+          console.error('[FileUpload] FileReader error details:', reader.error);
+          reject(new Error('Failed to read file. FileReader reported an error.'));
+        };
+
+        reader.onabort = () => {
+          console.warn('[FileUpload] File reading was aborted');
+          reject(new Error('File reading was aborted.'));
+        };
+
         reader.readAsArrayBuffer(file);
       });
 
+      console.log('[FileUpload] File read into ArrayBuffer, size:', buffer.byteLength, 'bytes');
       setSelectedFile(file);
+      console.log('[FileUpload] Passing file data to onFileSelect callback');
       onFileSelect(buffer, file.name);
     } catch (error) {
-      console.error('Error processing file:', error);
-      setError('Error processing file');
+      console.error('[FileUpload] Error processing file:', error);
+      setError('Error processing file. Please try another EPUB file.');
     }
   };
 
@@ -55,24 +77,35 @@ const FileUpload = ({ onFileSelect }) => {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
+    console.log('[FileUpload] File dropped');
 
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      await processFile(e.dataTransfer.files[0]);
+      const file = e.dataTransfer.files[0];
+      console.log('[FileUpload] Dropped file:', file.name);
+      await processFile(file);
+    } else {
+      console.warn('[FileUpload] No file found in drop event');
     }
   };
 
   const handleChange = async (e) => {
     e.preventDefault();
-    if (e.target.files && e.target.files[0]) {
-      await processFile(e.target.files[0]);
+    const file = e.target.files && e.target.files[0];
+    if (file) {
+      console.log('[FileUpload] File selected via input:', file.name);
+      await processFile(file);
+    } else {
+      console.warn('[FileUpload] No file selected from file input dialog');
     }
   };
 
   const handleClick = () => {
+    console.log('[FileUpload] Triggering file input dialog');
     inputRef.current.click();
   };
 
   const removeFile = () => {
+    console.log('[FileUpload] Removing selected file:', selectedFile ? selectedFile.name : 'none');
     setSelectedFile(null);
     setError('');
     if (inputRef.current) {
