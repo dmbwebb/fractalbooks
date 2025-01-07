@@ -1,114 +1,178 @@
-import React from 'react';
+// src/components/FractalView/FractalView.jsx
+
+import React, { useState } from 'react';
 import { ChevronUp, ChevronDown } from 'lucide-react';
 
 const FractalView = ({ bookStructure, currentPath, onPathChange }) => {
-  const level = currentPath.length; // 0=book, 1=chapter, 2=paragraph
+  // Track which chapters are expanded (multi-accordion).
+  // For example, if expandedChapters = [0, 2], then chapters 0 and 2 are open.
+  const [expandedChapters, setExpandedChapters] = useState([]);
+
+  // Track which paragraphs are expanded for each chapter.
+  // For example, expandedParagraphs = { 0: [1, 2], 2: [0] } means
+  // chapter 0 has paragraphs 1 and 2 expanded, chapter 2 has paragraph 0 expanded.
+  const [expandedParagraphs, setExpandedParagraphs] = useState({});
+
   const { book, chapters } = bookStructure.levels;
 
+  // -- Expand/Collapse Chapter --------------------------------------------------
+  const toggleChapter = (chapterIndex) => {
+    if (expandedChapters.includes(chapterIndex)) {
+      // Collapse it
+      setExpandedChapters(expandedChapters.filter((idx) => idx !== chapterIndex));
+    } else {
+      // Expand it
+      setExpandedChapters([...expandedChapters, chapterIndex]);
+    }
+  };
+
+  // -- Expand/Collapse Paragraph -----------------------------------------------
+  const toggleParagraph = (chapterIndex, paragraphIndex) => {
+    const current = expandedParagraphs[chapterIndex] || [];
+    if (current.includes(paragraphIndex)) {
+      // Collapse this paragraph
+      setExpandedParagraphs({
+        ...expandedParagraphs,
+        [chapterIndex]: current.filter((pIdx) => pIdx !== paragraphIndex),
+      });
+    } else {
+      // Expand this paragraph
+      setExpandedParagraphs({
+        ...expandedParagraphs,
+        [chapterIndex]: [...current, paragraphIndex],
+      });
+    }
+  };
+
+  // Optional: “Go Up” – go to the parent level in your old path-based logic
   const goUp = () => {
-    onPathChange(currentPath.slice(0, -1));
+    if (currentPath.length > 0) {
+      onPathChange(currentPath.slice(0, -1));
+    }
   };
 
-  const goDown = (index) => {
-    onPathChange([...currentPath, index]);
+  // Optional: “Go Down” – go to the next level (though in a multi-accordion UI,
+  // it might not do much, but we’ll keep it for now).
+  const goDown = () => {
+    onPathChange([...currentPath, 0]);
   };
-
-  let title = '';
-  let mainContent = null; // This will hold the main content (book summary, chapter title, paragraph text, etc.)
-  let itemsBelow = [];
-
-  if (level === 0) {
-    // Book level:
-    title = bookStructure.title || 'Untitled Book';
-
-    // Book summary in italics
-    // Ensure that book.summary is available; if not, fallback to book.content.
-    const bookSummary = book.summary || book.content;
-    mainContent = (
-      <p className="italic text-gray-700 mt-2">
-        {bookSummary}
-      </p>
-    );
-
-    // Below items: Chapters with their full chapter summaries (prominent style)
-    itemsBelow = chapters.map((c, i) => ({
-      title: c.title,
-      description: c.summary || c.content,
-      onClick: () => goDown(i)
-    }));
-  } else if (level === 1) {
-    // Chapter level:
-    const chapter = chapters[currentPath[0]];
-    title = chapter.title;
-    // We do NOT show the chapter summary here, only the title.
-    // Instead, we show paragraph summaries in full.
-
-    itemsBelow = chapter.paragraphs.map((p, i) => ({
-      title: `Paragraph ${i + 1}`,
-      // Show full paragraph summary. If no summary, fallback to content.
-      description: p.summary || p.content,
-      onClick: () => goDown(i)
-    }));
-  } else if (level === 2) {
-    // Paragraph level:
-    const chapter = chapters[currentPath[0]];
-    const paragraph = chapter.paragraphs[currentPath[1]];
-
-    title = `Paragraph ${currentPath[1] + 1}`;
-    // Show full paragraph text, no summary at this level.
-    mainContent = (
-      <p className="text-gray-800 mt-2">
-        {paragraph.content}
-      </p>
-    );
-  }
 
   return (
     <div className="w-full max-w-4xl mx-auto p-4">
-
-      {/* Up Button */}
-      {level > 0 && (
+      {/* --- Up Button --- */}
+      {currentPath.length > 0 && (
         <div
-          className="cursor-pointer mb-8 opacity-50 hover:opacity-70 transition-opacity"
+          className="cursor-pointer mb-8 opacity-50 hover:opacity-70 transition-opacity flex items-center"
           onClick={goUp}
         >
-          <div className="flex items-center justify-center mb-2">
-            <ChevronUp className="w-6 h-6" />
-          </div>
-          <div className="p-4 bg-gray-100 rounded-lg">
-            <p className="text-sm text-gray-600 line-clamp-2">
-              Go Up
-            </p>
-          </div>
+          <ChevronUp className="w-5 h-5 mr-2" />
+          <span className="text-sm text-gray-600">Go Up</span>
         </div>
       )}
 
-      {/* Current Level Display */}
+      {/* --- Book-Level Info --- */}
       <div className="p-6 bg-white rounded-lg shadow-lg mb-8">
-        <h2 className="text-xl font-semibold mb-4">{title}</h2>
-        {mainContent}
+        <h2 className="text-2xl font-semibold mb-4">
+          {bookStructure.title || 'Untitled Book'}
+        </h2>
+        <p className="italic text-gray-700">
+          {book.summary || book.content}
+        </p>
       </div>
 
-      {/* Items Below */}
-      {itemsBelow.length > 0 && (
-        <div className="mt-8 space-y-4">
-          {itemsBelow.map((item, index) => (
+      {/* --- Chapters List --- */}
+      <div className="space-y-4">
+        {chapters.map((chapter, chapterIndex) => {
+          const chapterIsOpen = expandedChapters.includes(chapterIndex);
+          const paragraphsForChapter = chapter.paragraphs || [];
+
+          return (
             <div
-              key={index}
-              className="cursor-pointer hover:shadow-lg transition-shadow bg-gray-100 p-4 rounded-lg"
-              onClick={item.onClick}
+              key={chapterIndex}
+              className="bg-gray-100 rounded-lg shadow-sm p-4 transition-colors"
             >
-              <h3 className="text-lg font-bold text-gray-800 mb-2">{item.title}</h3>
-              <p className="text-gray-700">
-                {item.description}
-              </p>
+              {/* Chapter Summary Row */}
+              <div
+                className="cursor-pointer flex items-start justify-between"
+                onClick={() => toggleChapter(chapterIndex)}
+              >
+                <div>
+                  <h3 className="text-lg font-bold text-gray-800 mb-1">
+                    {chapter.title}
+                  </h3>
+                  <p className="text-gray-700">
+                    {chapter.summary || chapter.content}
+                  </p>
+                </div>
+                <div className="ml-4 flex-shrink-0 text-gray-600">
+                  {chapterIsOpen ? <ChevronUp /> : <ChevronDown />}
+                </div>
+              </div>
+
+              {/* Paragraph Summaries (Collapsible) */}
+              <div
+                className={`
+                  overflow-hidden
+                  transition-all duration-300 ease-in-out
+                  ${chapterIsOpen ? 'max-h-[1000px] mt-3' : 'max-h-0'}
+                `}
+              >
+                {paragraphsForChapter.map((paragraph, paragraphIndex) => {
+                  const paraIsOpen =
+                    expandedParagraphs[chapterIndex]?.includes(paragraphIndex);
+
+                  return (
+                    <div
+                      key={paragraphIndex}
+                      className="bg-white rounded-md mt-2 p-3 ml-6 shadow-sm"
+                    >
+                      {/* Paragraph Summary Row */}
+                      <div
+                        className="cursor-pointer flex items-start justify-between"
+                        onClick={() => toggleParagraph(chapterIndex, paragraphIndex)}
+                      >
+                        <div>
+                          <h4 className="text-sm font-medium text-gray-800 mb-1">
+                            Paragraph {paragraphIndex + 1}
+                          </h4>
+                          <p className="text-gray-600">
+                            {paragraph.summary || paragraph.content}
+                          </p>
+                        </div>
+                        <div className="ml-4 flex-shrink-0 text-gray-500">
+                          {paraIsOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        </div>
+                      </div>
+
+                      {/* Full Paragraph Text (Collapsible) */}
+                      <div
+                        className={`
+                          overflow-hidden ml-4 pl-4 border-l border-gray-200 mt-2
+                          transition-all duration-300 ease-in-out
+                          ${paraIsOpen ? 'max-h-[500px]' : 'max-h-0'}
+                        `}
+                      >
+                        <p className="text-gray-700 text-sm">
+                          {paragraph.content}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          ))}
-          <div className="flex items-center justify-center mt-2">
-            <ChevronDown className="w-6 h-6" />
-          </div>
-        </div>
-      )}
+          );
+        })}
+      </div>
+
+      {/* --- Down Button --- */}
+      <div
+        className="cursor-pointer mt-8 opacity-50 hover:opacity-70 transition-opacity flex items-center justify-end"
+        onClick={goDown}
+      >
+        <span className="text-sm text-gray-600 mr-2">Go Down</span>
+        <ChevronDown className="w-5 h-5" />
+      </div>
     </div>
   );
 };
