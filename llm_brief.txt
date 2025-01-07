@@ -46,7 +46,6 @@ src/
 │   ├── FileUpload.jsx            # EPUB file upload handler
 │   ├── FractalView/
 │   │   ├── FractalView.jsx       # Main visualization component
-│   │   ├── LevelView.jsx         # Single level display
 │   │   └── Navigation.jsx        # Level navigation controls
 │   ├── ProgressIndicator.jsx     # Progress bar and status
 │   └── ExportImport.jsx          # JSON export/import functionality
