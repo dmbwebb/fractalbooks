@@ -9,10 +9,54 @@ class OpenAIService {
   async summarizeText(text, level) {
     try {
       const promptMap = {
-        paragraph: "Summarize this paragraph concisely while preserving key information: ",
-        section: "Provide a summary of this section, capturing main themes and key points: ",
-        chapter: "Create a comprehensive chapter summary highlighting major points and their connections: ",
-        book: "Provide a complete book summary capturing the main themes, arguments, and conclusions: "
+        paragraph: `You are an expert summarizer with a talent for distilling complex information into concise, accurate statements. Your task is to create a one-sentence summary of the following text:
+<input_text>
+${text}
+</input_text>
+Please follow these steps to create your summary:
+1. Carefully read and analyze the input text.
+2. Identify the main points and key information.
+3. Formulate a concise summary that accurately captures the essence of the text.
+4. Ensure your summary is exactly one sentence long.
+5. Do not say "This paragraph" or "In this paragraph", just state the summary of the arguments as if from the author themselves.`,
+
+        section: `You are an expert summarizer skilled at synthesizing complex information. Your task is to create a clear, structured summary of the following section:
+<input_text>
+${text}
+</input_text>
+Please follow these steps to create your summary:
+1. Carefully read and analyze the section.
+2. Identify the main themes and key supporting points.
+3. Formulate a concise summary that preserves the logical flow.
+4. Ensure your summary is 1 paragraphs long.`,
+
+        chapter: `You are an expert summarizer specializing in comprehensive chapter analysis. Your task is to create a detailed summary of the following chapter:
+<input_text>
+${text}
+</input_text>
+Please follow these steps to create your summary:
+1. Carefully read and analyze the chapter content.
+2. Identify major themes, key arguments, and their connections.
+3. Create a structured summary that maintains narrative flow.
+4. Include important supporting details and examples.
+5. Ensure your summary approximately 75 words long.
+6. Do not preface the summary with a title or heading, just return the summary.
+7. Do not say "This chapter" or "In this chapter", just state the summary of the arguments as if from the author themselves.`,
+
+        book: `You are an expert summarizer specializing in comprehensive book analysis. Your task is to create a detailed summary of the following book:
+<input_text>
+${text}
+</input_text>
+Please follow these steps to create your summary:
+1. Carefully read and analyze the book's content.
+2. Identify the main themes, arguments, and conclusions.
+3. Create a structured summary that captures the book's progression.
+4. Include key supporting evidence and examples.
+5. Highlight significant conclusions and implications.
+6. Ensure your summary is approximately 150 words long.
+7. Do not preface the summary with a title or heading, just return the summary.
+8. Do not say "This book" or "In this book", just state the summary of the arguments as if from the author themselves.
+`
       };
 
       const prompt = promptMap[level] || promptMap.paragraph;
@@ -32,11 +76,11 @@ class OpenAIService {
             },
             {
               role: 'user',
-              content: `${prompt}\n\n${text}`
+              content: prompt
             }
           ],
-          temperature: 0.3, // Lower temperature for more consistent summaries
-          max_tokens: level === 'book' ? 1000 : 500
+          temperature: 0.3 // Lower temperature for more consistent summaries
+          // max_tokens: level === 'book' ? 1000 : 500
         })
       });
 
