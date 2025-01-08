@@ -75,3 +75,8 @@
     @apply text-gray-600 hover:bg-gray-100;
   }
 }
+
+/* Force everything to use the new serif definition: */
+html {
+  @apply font-serif;
+}
