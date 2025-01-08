@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import APIKeyInput from './APIKeyInput';
 import FileUpload from './FileUpload';
 import FractalView from './FractalView/FractalView';
-import Navigation from './FractalView/Navigation';
+// import Navigation from './FractalView/Navigation';
 import ProgressIndicator from './ProgressIndicator';
 import { Save, Upload } from 'lucide-react';
 
@@ -206,11 +206,11 @@ const App = () => {
         {/* Fractal Book View */}
         {bookStructure && !isProcessing && (
           <div className="mt-6">
-            <Navigation
-              currentPath={currentPath}
-              structure={bookStructure}
-              onNavigate={setCurrentPath}
-            />
+            {/*<Navigation*/}
+            {/*  currentPath={currentPath}*/}
+            {/*  structure={bookStructure}*/}
+            {/*  onNavigate={setCurrentPath}*/}
+            {/*/>*/}
             <div className="mt-6">
               <FractalView
                 bookStructure={bookStructure}
