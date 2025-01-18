@@ -86,9 +86,6 @@ const FractalView = ({ bookStructure, currentPath, onPathChange }) => {
                   <h3 className="text-xl font-semibold text-gray-800 group-hover:text-indigo-700 transition-colors">
                     {chapter.title}
                   </h3>
-                  {/*
-                    Removed "line-clamp-3" to avoid truncation of the chapter summary
-                  */}
                   <p className="text-gray-600 mt-2 leading-relaxed">
                     {chapter.summary || chapter.content}
                   </p>
@@ -102,7 +99,7 @@ const FractalView = ({ bookStructure, currentPath, onPathChange }) => {
               <div
                 className={`
                   overflow-hidden transition-all duration-300 ease-in-out
-                  ${chapterIsOpen ? 'max-h-[2000px] mt-3' : 'max-h-0'}
+                  ${chapterIsOpen ? 'max-h-[9999px] mt-3' : 'max-h-0'}
                 `}
               >
                 <div className="mt-2 space-y-3 ml-6 border-l-4 border-indigo-100 pl-4">
@@ -138,7 +135,7 @@ const FractalView = ({ bookStructure, currentPath, onPathChange }) => {
                         <div
                           className={`
                             overflow-hidden transition-all duration-300 ease-in-out
-                            ${paraIsOpen ? 'max-h-[800px] mt-3' : 'max-h-0'}
+                            ${paraIsOpen ? 'max-h-[9999px] mt-3' : 'max-h-0'}
                           `}
                         >
                           <p className="italic text-gray-700 text-sm leading-relaxed">

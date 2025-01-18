@@ -1,43 +1,68 @@
+// src/components/FileUpload.jsx
 import React, { useState, useRef } from 'react';
 import { Upload, FileText, X } from 'lucide-react';
 
+/**
+ * FileUpload component:
+ * - Handles drag-and-drop or manual file selection
+ * - Validates file type (EPUB or PDF) and size limit (50MB)
+ * - Reads the file as ArrayBuffer, then calls onFileSelect
+ */
 const FileUpload = ({ onFileSelect }) => {
   const [dragActive, setDragActive] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
   const [error, setError] = useState('');
   const inputRef = useRef(null);
 
+  /**
+   * handleDrag: Called on dragenter, dragover, dragleave
+   */
   const handleDrag = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (e.type === "dragenter" || e.type === "dragover") {
+    if (e.type === 'dragenter' || e.type === 'dragover') {
       console.log('[FileUpload] Drag over area');
       setDragActive(true);
-    } else if (e.type === "dragleave") {
+    } else if (e.type === 'dragleave') {
       console.log('[FileUpload] Drag left area');
       setDragActive(false);
     }
   };
 
+  /**
+   * validateFile: Ensures the file has a valid extension and is under 50MB.
+   */
   const validateFile = (file) => {
     console.log('[FileUpload] Validating file:', file.name, file.size, file.type);
-    if (!file.name.toLowerCase().endsWith('.epub')) {
-      console.log('[FileUpload] Validation failed: not an EPUB file');
-      setError('Please upload an EPUB file');
+
+    const validExtensions = ['.epub', '.pdf'];
+    const lowerName = file.name.toLowerCase();
+    const isValidExt = validExtensions.some(ext => lowerName.endsWith(ext));
+
+    if (!isValidExt) {
+      console.log('[FileUpload] Validation failed: not an EPUB or PDF file');
+      setError('Please upload an EPUB or PDF file');
       return false;
     }
+
     if (file.size > 50 * 1024 * 1024) { // 50MB limit
       console.log('[FileUpload] Validation failed: file too large');
       setError('File size must be less than 50MB');
       return false;
     }
+
     console.log('[FileUpload] File validation passed');
     setError('');
     return true;
   };
 
+  /**
+   * processFile: Reads the file as an ArrayBuffer, then calls onFileSelect
+   */
   const processFile = async (file) => {
-    if (!validateFile(file)) return;
+    if (!validateFile(file)) {
+      return;
+    }
 
     try {
       console.log('[FileUpload] Starting to read file:', file.name);
@@ -65,14 +90,19 @@ const FileUpload = ({ onFileSelect }) => {
 
       console.log('[FileUpload] File read into ArrayBuffer, size:', buffer.byteLength, 'bytes');
       setSelectedFile(file);
+
+      // Provide file data + name to onFileSelect
       console.log('[FileUpload] Passing file data to onFileSelect callback');
       onFileSelect(buffer, file.name);
-    } catch (error) {
-      console.error('[FileUpload] Error processing file:', error);
-      setError('Error processing file. Please try another EPUB file.');
+    } catch (err) {
+      console.error('[FileUpload] Error processing file:', err);
+      setError('Error processing file. Please try another EPUB or PDF file.');
     }
   };
 
+  /**
+   * handleDrop: Called when a file is dropped onto the drag area
+   */
   const handleDrop = async (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -88,6 +118,9 @@ const FileUpload = ({ onFileSelect }) => {
     }
   };
 
+  /**
+   * handleChange: Called when a file is selected from the file input dialog
+   */
   const handleChange = async (e) => {
     e.preventDefault();
     const file = e.target.files && e.target.files[0];
@@ -99,11 +132,17 @@ const FileUpload = ({ onFileSelect }) => {
     }
   };
 
+  /**
+   * handleClick: Programmatically open the file input dialog
+   */
   const handleClick = () => {
     console.log('[FileUpload] Triggering file input dialog');
     inputRef.current.click();
   };
 
+  /**
+   * removeFile: Clear the selected file from state
+   */
   const removeFile = () => {
     console.log('[FileUpload] Removing selected file:', selectedFile ? selectedFile.name : 'none');
     setSelectedFile(null);
@@ -127,7 +166,7 @@ const FileUpload = ({ onFileSelect }) => {
         <input
           ref={inputRef}
           type="file"
-          accept=".epub"
+          accept=".epub,.pdf"
           onChange={handleChange}
           className="hidden"
         />
@@ -136,7 +175,7 @@ const FileUpload = ({ onFileSelect }) => {
           <div className="text-center">
             <Upload className="mx-auto h-12 w-12 text-gray-400" />
             <p className="mt-2 text-sm text-gray-600">
-              Drag and drop your EPUB file here, or{' '}
+              Drag and drop your EPUB or PDF here, or{' '}
               <button
                 type="button"
                 onClick={handleClick}
