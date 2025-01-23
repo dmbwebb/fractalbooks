@@ -15,19 +15,17 @@ class OpenAIService {
   async summarizeText(text, level) {
     try {
       const promptMap = {
-        paragraph: `You are an expert summarizer with a talent for distilling complex information into concise, accurate statements. Your task is to create a one-sentence summary of the following text. If the text does not contain substantive body content to summarize, return "null".
+        paragraph: `You are an expert summarizer with a talent for distilling complex information into concise, accurate statements. Your task is to create a one-sentence summary of the following text.
 
 <input_text>
 ${text}
 </input_text>
 
-Please follow these steps to create your summary:
-1. Carefully read and analyze the input text.
-2. Determine if the text contains substantive body content that can be summarized. If not, return "null". Return "null" if the paragraph is an acknowledgment, table of contents, references, something similar.
-3. If the text contains substantial content, identify the main points and key information.
-4. Formulate a concise summary that accurately captures the essence of the text.
-5. Ensure your summary is exactly one sentence long.
-6. Do not say "This paragraph" or "In this paragraph"; just state the summary of the content as if from the author themselves.`,
+1. Determine if the text contains substantive body content that can be summarized. If not, return "null". Return "null" if the paragraph is an acknowledgment, table of contents, references, something similar.
+2. If the text contains substantial content, identify the main points and key information.
+3. Formulate a concise summary that accurately captures the essence of the text.
+4. Ensure your summary is exactly one sentence long.
+5. Do not say "This paragraph" or "In this paragraph"; just state the summary of the content as if from the author themselves.`,
 
         section: `You are an expert summarizer skilled at synthesizing complex information. Your task is to create a clear, structured summary of the following section. If the section does not contain substantive body content to summarize, return "null".
 
@@ -133,7 +131,7 @@ Please follow these steps to create your summary:
           Authorization: `Bearer ${this.apiKey}`,
         },
         body: JSON.stringify({
-          model: 'gpt-4o-mini',
+          model: 'gpt-4o-mini', //
           messages: [
             {
               role: 'user',
@@ -141,6 +139,7 @@ Please follow these steps to create your summary:
             },
           ],
           temperature: 0,
+          max_tokens: 500, // Adjust based on expected output size
         }),
       });
 
@@ -151,7 +150,6 @@ Please follow these steps to create your summary:
       const data = await response.json();
       const content = data.choices[0].message.content.trim();
 
-      // Since the assistant is instructed to return only JSON, we can return the content directly
       return content;
     } catch (error) {
       console.error('OpenAI analyzeClasses error:', error);
