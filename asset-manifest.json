@@ -1,0 +1,13 @@
+{
+  "files": {
+    "main.css": "/fractalbooks/static/css/main.3f9ca61a.css",
+    "main.js": "/fractalbooks/static/js/main.ac29f29a.js",
+    "index.html": "/fractalbooks/index.html",
+    "main.3f9ca61a.css.map": "/fractalbooks/static/css/main.3f9ca61a.css.map",
+    "main.ac29f29a.js.map": "/fractalbooks/static/js/main.ac29f29a.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.3f9ca61a.css",
+    "static/js/main.ac29f29a.js"
+  ]
+}
