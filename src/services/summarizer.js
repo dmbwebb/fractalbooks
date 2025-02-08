@@ -6,7 +6,255 @@ class Summarizer {
     this.summaryCache = new Map();
   }
 
-  // Generate a cache key for storing summaries
+  // Helper function: separate chain-of-thought from final summary
+  parseAnalysisAndSummary(text) {
+    let analysis = '';
+    let summary = '';
+
+    const chapterAnalysisMatch = text.match(/<chapter_analysis>([\s\S]*?)<\/chapter_analysis>/i);
+    const bookAnalysisMatch = text.match(/<book_analysis>([\s\S]*?)<\/book_analysis>/i);
+
+    if (chapterAnalysisMatch) {
+      analysis = chapterAnalysisMatch[1].trim();
+    } else if (bookAnalysisMatch) {
+      analysis = bookAnalysisMatch[1].trim();
+    }
+
+    const summaryMatch = text.match(/<summary>([\s\S]*?)<\/summary>/i);
+    if (summaryMatch) {
+      summary = summaryMatch[1].trim();
+    } else {
+      // fallback if <summary> not found
+      summary = text;
+    }
+
+    return { analysis, summary };
+  }
+
+  // Reordered flow: book -> chapters -> paragraphs
+  async processBookStructure(bookStructure, onProgress) {
+    console.log('[Summarizer] Starting summarization process...');
+
+    // First, get excluded classes for HTML cleaning
+    let excludedClasses = [];
+    try {
+      const sampleHtml = bookStructure.levels.book.content;
+      const classList = Array.from(new Set([...sampleHtml.matchAll(/class="([^"]+)"/g)].map(m => m[1]))).join('\n');
+      excludedClasses = JSON.parse(await this.openai.analyzeClasses(classList, sampleHtml));
+    } catch (error) {
+      console.warn('[Summarizer] Error analyzing classes:', error);
+    }
+
+    try {
+      // Try to summarize entire book first
+      await this.processBook(bookStructure, onProgress, excludedClasses);
+    } catch (error) {
+      if (error.message === 'TOKEN_LIMIT_EXCEEDED') {
+        console.log('[Summarizer] Book too long, falling back to chapter-first approach');
+        // Reset book structure
+        bookStructure.levels.book.skip = false;
+        bookStructure.levels.book.analysis = '';
+        bookStructure.levels.book.summary = '';
+        
+        // Summarize chapters without book context
+        await this.processChapters(bookStructure, onProgress, excludedClasses);
+        
+        // Combine chapter summaries into book summary
+        const chapterSummaries = bookStructure.levels.chapters
+          .filter(ch => !ch.skip)
+          .map(ch => ch.summary)
+          .join('\n\n');
+        
+        // Summarize the combined chapter summaries as the book summary
+        const bookSummary = await this.openai.summarizeText(
+          chapterSummaries,
+          'book',
+          { excludedClasses }
+        );
+        
+        bookStructure.levels.book.summary = bookSummary;
+      } else {
+        throw error;
+      }
+    }
+
+    // Skip subsequent steps if book was unsubstantial
+    if (bookStructure.levels.book.skip) {
+      console.warn('[Summarizer] Book was null or unsubstantial, skipping chapters & paragraphs.');
+      return bookStructure;
+    }
+
+    // Process remaining levels
+    if (!bookStructure.levels.book.skip) {
+      await this.processChapters(bookStructure, onProgress, excludedClasses);
+      bookStructure.levels.chapters = bookStructure.levels.chapters.filter(ch => !ch.skip);
+      await this.processParagraphs(bookStructure, onProgress, excludedClasses);
+      
+      // Clean up empty paragraphs
+      for (const ch of bookStructure.levels.chapters) {
+        ch.paragraphs = ch.paragraphs.filter(p => !p.skip);
+      }
+    }
+
+    return bookStructure;
+  }
+
+  async processBook(bookStructure, onProgress, excludedClasses) {
+    console.log('[Summarizer] Summarizing entire book first...');
+    const bookContent = bookStructure.levels.book.content || '';
+    const cacheKey = this.generateCacheKey(bookContent, 'book');
+
+    // If we have a cached summary
+    if (this.summaryCache.has(cacheKey)) {
+      const cachedVal = this.summaryCache.get(cacheKey);
+      if (cachedVal === 'null') {
+        bookStructure.levels.book.skip = true;
+      } else if (typeof cachedVal === 'object') {
+        bookStructure.levels.book.analysis = cachedVal.analysis;
+        bookStructure.levels.book.summary = cachedVal.summary;
+        bookStructure.levels.book.skip = false;
+      } else {
+        // fallback older format
+        bookStructure.levels.book.analysis = '';
+        bookStructure.levels.book.summary = cachedVal;
+        bookStructure.levels.book.skip = false;
+      }
+      onProgress?.(1);
+      return;
+    }
+
+    try {
+      const raw = await this.openai.summarizeText(bookContent, 'book', { excludedClasses });
+      if (raw === null) {
+        console.warn('[Summarizer] Book-level returned null; skipping subsequent steps.');
+        bookStructure.levels.book.skip = true;
+        this.summaryCache.set(cacheKey, 'null');
+      } else {
+        const { analysis, summary } = this.parseAnalysisAndSummary(raw);
+        bookStructure.levels.book.analysis = analysis;
+        bookStructure.levels.book.summary = summary;
+        bookStructure.levels.book.skip = false;
+        this.summaryCache.set(cacheKey, { analysis, summary });
+      }
+    } catch (error) {
+      console.error('[Summarizer] Error summarizing book:', error);
+      bookStructure.levels.book.skip = false;
+      bookStructure.levels.book.analysis = '';
+      bookStructure.levels.book.summary = 'Error generating summary';
+    }
+
+    onProgress?.(1);
+  }
+
+  async processChapters(bookStructure, onProgress, excludedClasses) {
+    console.log('[Summarizer] Summarizing chapters with the final book summary...');
+
+    // If the book was flagged as skip, or there's no summary, do nothing
+    if (bookStructure.levels.book.skip) {
+      console.warn('[Summarizer] Book skip is true; skipping chapters.');
+      return;
+    }
+    const bookSummaryText = bookStructure.levels.book.summary || '';
+
+    // Summarize each chapter
+    const chapters = bookStructure.levels.chapters;
+    let completed = 0;
+    for (let cIndex = 0; cIndex < chapters.length; cIndex++) {
+      const chapter = chapters[cIndex];
+      const cacheKey = this.generateCacheKey(chapter.content, 'chapter');
+
+      if (!this.summaryCache.has(cacheKey)) {
+        // Summarize using the entire raw chapter text + book summary
+        try {
+          const raw = await this.openai.summarizeText(chapter.content, 'chapter', {
+            bookSummary: bookSummaryText,
+            excludedClasses
+          });
+
+          if (raw === null) {
+            chapter.skip = true;
+            this.summaryCache.set(cacheKey, 'null');
+          } else {
+            const { analysis, summary } = this.parseAnalysisAndSummary(raw);
+            chapter.analysis = analysis;
+            chapter.summary = summary;
+            chapter.skip = false;
+            this.summaryCache.set(cacheKey, { analysis, summary });
+          }
+        } catch (error) {
+          console.error(`[Summarizer] Error summarizing chapter ${chapter.title}:`, error);
+          chapter.analysis = '';
+          chapter.summary = 'Error generating summary';
+          chapter.skip = false;
+        }
+      } else {
+        // Use cached
+        const cachedVal = this.summaryCache.get(cacheKey);
+        if (cachedVal === 'null') {
+          chapter.skip = true;
+        } else if (typeof cachedVal === 'object') {
+          chapter.analysis = cachedVal.analysis;
+          chapter.summary = cachedVal.summary;
+          chapter.skip = false;
+        } else {
+          // fallback older format
+          chapter.analysis = '';
+          chapter.summary = cachedVal;
+          chapter.skip = false;
+        }
+      }
+
+      completed++;
+      onProgress?.(completed / chapters.length);
+    }
+  }
+
+  async processParagraphs(bookStructure, onProgress, excludedClasses) {
+    console.log('[Summarizer] Summarizing paragraphs last...');
+    let totalParagraphs = 0;
+    let completed = 0;
+
+    // Count how many paragraphs we have total
+    for (const ch of bookStructure.levels.chapters) {
+      totalParagraphs += ch.paragraphs.length;
+    }
+
+    for (const ch of bookStructure.levels.chapters) {
+      for (const para of ch.paragraphs) {
+        const cacheKey = this.generateCacheKey(para.content, 'paragraph');
+        if (!this.summaryCache.has(cacheKey)) {
+          try {
+            const summary = await this.openai.summarizeText(para.content, 'paragraph', { excludedClasses });
+            if (summary === null) {
+              para.skip = true;
+              this.summaryCache.set(cacheKey, 'null');
+            } else {
+              para.summary = summary;
+              para.skip = false;
+              this.summaryCache.set(cacheKey, summary);
+            }
+          } catch (error) {
+            console.error('[Summarizer] Error summarizing paragraph:', error);
+            para.summary = 'Error generating summary';
+            para.skip = false;
+          }
+        } else {
+          // Use cached
+          const cachedVal = this.summaryCache.get(cacheKey);
+          if (cachedVal === 'null') {
+            para.skip = true;
+          } else {
+            para.summary = cachedVal;
+            para.skip = false;
+          }
+        }
+
+        completed++;
+        onProgress?.(completed / totalParagraphs);
+      }
+    }
+  }
+
   generateCacheKey(content, level) {
     const hash = content
       .split('')
@@ -15,248 +263,25 @@ class Summarizer {
     return `${level}-${hash}`;
   }
 
-  // Process entire book structure and generate summaries
-  // New order: paragraphs -> chapters -> book
-  async processBookStructure(bookStructure, onProgress) {
-    console.log('[Summarizer] Starting to process entire book structure...');
-
-    // Count total tasks considering skips
-    const totalTasks = this.countTotalSummarizationTasks(bookStructure);
-    console.log(`[Summarizer] Total summarization tasks: ${totalTasks}`);
-    let completedTasks = 0;
-
-    const updateProgress = () => {
-      completedTasks++;
-      const progress = completedTasks / totalTasks;
-      console.log(
-        `[Summarizer] Progress: ${Math.round(progress * 100)}% (${completedTasks}/${totalTasks})`
-      );
-      onProgress?.(progress);
-    };
-
-    try {
-      console.log('[Summarizer] Starting paragraph-level summarization...');
-      await this.processParagraphs(bookStructure, updateProgress);
-      console.log('[Summarizer] Paragraph-level summarization complete.');
-
-      console.log('[Summarizer] Starting chapter-level summarization...');
-      await this.processChapters(bookStructure, updateProgress);
-      console.log('[Summarizer] Chapter-level summarization complete.');
-
-      console.log('[Summarizer] Starting book-level summarization...');
-      await this.processBook(bookStructure, updateProgress);
-      console.log('[Summarizer] Book-level summarization complete.');
-
-      console.log('[Summarizer] All summarization tasks finished.');
-      return bookStructure;
-    } catch (error) {
-      console.error('[Summarizer] Error processing book structure:', error);
-      throw new Error('Failed to process book structure: ' + error.message);
-    }
-  }
-
-  // Count total number of summarization tasks considering skips
-  countTotalSummarizationTasks(bookStructure) {
-    let count = 0;
-
-    // Paragraph level
-    for (const chapter of bookStructure.levels.chapters) {
-      for (const paragraph of chapter.paragraphs) {
-        count += 1;
-      }
-    }
-
-    // Chapter level
-    count += bookStructure.levels.chapters.length;
-
-    // Book level
-    count += 1; // For the book summary
-
-    return count;
-  }
-
-  // Process paragraphs for all chapters
-  async processParagraphs(bookStructure, onProgress) {
-    console.log('[Summarizer] Processing paragraphs...');
-    for (let cIndex = 0; cIndex < bookStructure.levels.chapters.length; cIndex++) {
-      const chapter = bookStructure.levels.chapters[cIndex];
-      console.log(
-        `[Summarizer] Chapter ${cIndex + 1}: Summarizing ${chapter.paragraphs.length} paragraphs`
-      );
-
-      for (let pIndex = 0; pIndex < chapter.paragraphs.length; pIndex++) {
-        const paragraph = chapter.paragraphs[pIndex];
-        const cacheKey = this.generateCacheKey(paragraph.content, 'paragraph');
-        console.log(`[Summarizer] Paragraph ${pIndex + 1} cacheKey: ${cacheKey}`);
-
-        if (!this.summaryCache.has(cacheKey)) {
-          try {
-            console.log('[Summarizer] Sending paragraph to OpenAI for summarization...');
-            const summary = await this.openai.summarizeText(paragraph.content, 'paragraph');
-
-            if (summary === null) {
-              console.log(
-                `[Summarizer] Paragraph ${pIndex + 1} returned null summary. Skipping.`
-              );
-              paragraph.skip = true;
-            } else {
-              console.log('[Summarizer] Received paragraph summary:', summary);
-              this.summaryCache.set(cacheKey, summary);
-              paragraph.summary = summary;
-              paragraph.skip = false;
-            }
-          } catch (error) {
-            console.error('[Summarizer] Error summarizing paragraph:', error);
-            paragraph.summary = 'Error generating summary';
-            paragraph.skip = false;
-          }
-        } else {
-          console.log('[Summarizer] Using cached summary for this paragraph.');
-          paragraph.summary = this.summaryCache.get(cacheKey);
-          paragraph.skip = false;
-        }
-
-        onProgress?.();
-      }
-
-      // Remove skipped paragraphs
-      chapter.paragraphs = chapter.paragraphs.filter((para) => !para.skip);
-      console.log(
-        `[Summarizer] Chapter ${cIndex + 1} has ${chapter.paragraphs.length} paragraphs after filtering.`
-      );
-    }
-  }
-
-  // Process chapters using summaries from their paragraphs
-  async processChapters(bookStructure, onProgress) {
-    console.log('[Summarizer] Processing chapters...');
-    const chapters = bookStructure.levels.chapters;
-
-    for (let cIndex = 0; cIndex < chapters.length; cIndex++) {
-      const chapter = chapters[cIndex];
-      const cacheKey = this.generateCacheKey(chapter.content, 'chapter');
-      console.log(
-        `[Summarizer] Summarizing Chapter ${cIndex + 1} with cacheKey: ${cacheKey}`
-      );
-
-      if (!this.summaryCache.has(cacheKey)) {
-        try {
-          // Skip chapter if all paragraphs are skipped
-          if (chapter.paragraphs.length === 0) {
-            console.log(`[Summarizer] No paragraphs to summarize in Chapter ${cIndex + 1}. Skipping chapter.`);
-            chapter.skip = true;
-            onProgress?.();
-            continue;
-          }
-
-          console.log('[Summarizer] Combining paragraph summaries for chapter...');
-          const contextContent = chapter.paragraphs
-            .map((p) => p.summary)
-            .join('\n');
-
-          console.log('[Summarizer] Sending chapter to OpenAI for summarization...');
-          const summary = await this.openai.summarizeText(contextContent, 'chapter');
-
-          if (summary === null) {
-            console.log(`[Summarizer] Chapter ${cIndex + 1} returned null summary. Skipping.`);
-            chapter.skip = true;
-          } else {
-            console.log('[Summarizer] Received chapter summary:', summary);
-            this.summaryCache.set(cacheKey, summary);
-            chapter.summary = summary;
-            chapter.skip = false;
-          }
-        } catch (error) {
-          console.error('[Summarizer] Error summarizing chapter:', error);
-          chapter.summary = 'Error generating summary';
-          chapter.skip = false;
-        }
-      } else {
-        console.log('[Summarizer] Using cached summary for this chapter.');
-        chapter.summary = this.summaryCache.get(cacheKey);
-        chapter.skip = false;
-      }
-
-      onProgress?.();
-    }
-
-    // Remove skipped chapters
-    bookStructure.levels.chapters = chapters.filter((chapter) => !chapter.skip);
-    console.log(
-      `[Summarizer] ${bookStructure.levels.chapters.length} chapters remaining after filtering.`
-    );
-  }
-
-  // Process entire book using chapter summaries
-  async processBook(bookStructure, onProgress) {
-    console.log('[Summarizer] Processing book-level summary...');
-    const cacheKey = this.generateCacheKey(bookStructure.levels.book.content, 'book');
-    console.log(`[Summarizer] Summarizing entire book with cacheKey: ${cacheKey}`);
-
-    if (!this.summaryCache.has(cacheKey)) {
-      try {
-        // Skip book summary if there are no chapters
-        if (bookStructure.levels.chapters.length === 0) {
-          console.log('[Summarizer] No chapters to summarize for the book. Skipping book summary.');
-          bookStructure.levels.book.skip = true;
-          onProgress?.();
-          return;
-        }
-
-        console.log('[Summarizer] Combining chapter summaries for book...');
-        const contextContent = bookStructure.levels.chapters
-          .map((c) => c.summary)
-          .join('\n\n');
-
-        console.log('[Summarizer] Sending entire book to OpenAI for summarization...');
-        const summary = await this.openai.summarizeText(contextContent, 'book');
-
-        if (summary === null) {
-          console.log('[Summarizer] Book-level summary returned null. Skipping.');
-          bookStructure.levels.book.skip = true;
-        } else {
-          console.log('[Summarizer] Received book summary:', summary);
-          this.summaryCache.set(cacheKey, summary);
-          bookStructure.levels.book.summary = summary;
-          bookStructure.levels.book.skip = false;
-        }
-      } catch (error) {
-        console.error('[Summarizer] Error summarizing book:', error);
-        bookStructure.levels.book.summary = 'Error generating summary';
-        bookStructure.levels.book.skip = false;
-      }
-    } else {
-      console.log('[Summarizer] Using cached summary for the entire book.');
-      bookStructure.levels.book.summary = this.summaryCache.get(cacheKey);
-      bookStructure.levels.book.skip = false;
-    }
-
-    onProgress?.();
-  }
-
-  // Clear the summary cache
+  // Clears entire summary cache
   clearCache() {
-    console.log('[Summarizer] Clearing summary cache...');
     this.summaryCache.clear();
   }
 
-  // Export summaries for saving
+  // Exports all cached summaries
   exportSummaries() {
-    console.log('[Summarizer] Exporting summaries...');
     return Array.from(this.summaryCache.entries()).reduce((acc, [key, value]) => {
       acc[key] = value;
       return acc;
     }, {});
   }
 
-  // Import previously saved summaries
+  // Imports previously cached summaries
   importSummaries(summaries) {
-    console.log('[Summarizer] Importing summaries...');
     this.summaryCache.clear();
-    Object.entries(summaries).forEach(([key, value]) => {
-      this.summaryCache.set(key, value);
-    });
-    console.log('[Summarizer] Summaries imported successfully.');
+    for (const [key, val] of Object.entries(summaries)) {
+      this.summaryCache.set(key, val);
+    }
   }
 }
 

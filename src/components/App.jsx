@@ -4,7 +4,6 @@ import React, { useState, useEffect } from 'react';
 import APIKeyInput from './APIKeyInput';
 import FileUpload from './FileUpload';
 import FractalView from './FractalView/FractalView';
-// import Navigation from './FractalView/Navigation';
 import ProgressIndicator from './ProgressIndicator';
 import { Save, Upload } from 'lucide-react';
 import OpenAIService from '../services/openai';
@@ -19,6 +18,9 @@ const App = () => {
   const [currentPath, setCurrentPath] = useState([]);
   const [error, setError] = useState(null);
 
+  // For instructions display
+  const [showInstructions, setShowInstructions] = useState(true);
+
   // Initialize services
   const [services, setServices] = useState({
     epubParser: null,
@@ -26,7 +28,7 @@ const App = () => {
     summarizer: null,
   });
 
-  // Whenever the user enters an API key, rebuild our OpenAI and Summarizer service
+  // Build services whenever the user sets an API key
   useEffect(() => {
     if (apiKey) {
       const openaiService = new OpenAIService(apiKey);
@@ -39,7 +41,6 @@ const App = () => {
         summarizer: summarizer,
       });
     } else {
-      // Reset services if API key is removed
       setServices({
         epubParser: null,
         openai: null,
@@ -49,31 +50,35 @@ const App = () => {
   }, [apiKey]);
 
   /**
-   * handleFileSelect:
-   * Called when user uploads an EPUB (or PDF).
-   * We parse the file, then run the Summarizer's process.
+   * Handle file upload
    */
   const handleFileSelect = async (arrayBuffer, filename) => {
+    // Hide instructions once user starts uploading
+    setShowInstructions(false);
     setError(null);
     setIsProcessing(true);
     setProgress(0);
+
     try {
-      // Check if services are initialized
       if (!services.openai || !services.epubParser || !services.summarizer) {
         throw new Error('Services are not initialized. Please enter your API key first.');
       }
 
-      // 1. Parse EPUB
-      const structure = await services.epubParser.loadBook(arrayBuffer, filename);
-      setProgress(0.2);
+      // 1) Parse the EPUB
+      await services.epubParser.loadBook(arrayBuffer, filename);
+      // For demonstration, consider parsing as ~10% of the pipeline
+      setProgress(0.1);
 
-      // 2. Summarize
+      // 2) Summarize (book → chapters → paragraphs). Summarizer calls onProgress in [0..1].
       const processedStructure = await services.summarizer.processBookStructure(
-        structure,
-        (p) => setProgress(0.2 + p * 0.8)
+        services.epubParser.structure,
+        // We combine the Summarizer's fraction (p from 0..1) into overall pipeline
+        (p) => setProgress(0.1 + 0.9 * p)
       );
+
       setBookStructure(processedStructure);
       setCurrentPath([]);
+      setProgress(1);
     } catch (err) {
       console.error('[App] Error processing file:', err);
       setError(err.message);
@@ -83,8 +88,7 @@ const App = () => {
   };
 
   /**
-   * handleExport:
-   * Exports the entire structure + Summaries as JSON
+   * Export entire structure + summaries as JSON
    */
   const handleExport = () => {
     if (!bookStructure) return;
@@ -104,9 +108,7 @@ const App = () => {
   };
 
   /**
-   * handleImport:
-   * Imports a previously exported JSON file with full structure + summaries.
-   * If we have no book loaded yet, we skip parsing entirely and just load from JSON.
+   * Import a previously exported JSON file
    */
   const handleImport = (event) => {
     const file = event.target.files[0];
@@ -115,14 +117,10 @@ const App = () => {
     reader.onload = (e) => {
       try {
         const importData = JSON.parse(e.target.result);
-        // The JSON is assumed to contain the full "structure" + "summaries"
-        // Set the entire fractal structure from JSON
         setBookStructure(importData.structure);
-        // If we have a Summarizer instance, import the summaries
         if (services.summarizer && importData.summaries) {
           services.summarizer.importSummaries(importData.summaries);
         }
-        // Reset current path to show the top level
         setCurrentPath([]);
         setError(null);
       } catch (err) {
@@ -139,8 +137,8 @@ const App = () => {
       <header className="bg-white shadow-sm">
         <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center">
-            <h1 className="text-xl font-semibold text-gray-900">Fractal Book</h1>
-            {/* Always show Export/Import controls, even if no book is loaded */}
+            <h1 className="text-xl font-semibold text-gray-900">FractalBooks</h1>
+            {/* Export/Import controls */}
             <div className="flex space-x-4">
               <button
                 onClick={handleExport}
@@ -163,47 +161,64 @@ const App = () => {
           </div>
         </div>
       </header>
-      {/* Main content */}
+
+      {/* Main */}
       <main className="max-w-7xl mx-auto px-4 py-6 sm:px-6 lg:px-8">
-        {/* API Key Prompt */}
+        {/* API Key prompt */}
         {!apiKey && (
           <div className="max-w-md mx-auto">
             <APIKeyInput onApiKeySubmit={setApiKey} />
           </div>
         )}
-        {/* File Upload Section (only if we have an API key & no book yet & not processing) */}
+
+        {/* File Upload if we have key & no book & not processing */}
         {apiKey && !bookStructure && !isProcessing && (
           <div className="max-w-md mx-auto mt-8">
             <FileUpload onFileSelect={handleFileSelect} />
           </div>
         )}
+
+        {/* Instructions Box */}
+        {showInstructions && !bookStructure && !isProcessing && (
+          <div className="max-w-md mx-auto mt-8 p-4 bg-gray-200 text-gray-800 rounded-lg shadow transition-opacity duration-700">
+            <p>
+              Welcome to <strong>Fractal Book Summaries!</strong>
+              This application allows you to upload an EPUB file
+              and automatically generate hierarchical summaries.
+              You can explore summaries at different levels,
+              from high-level overviews down to individual paragraphs.
+              To get started, enter your OpenAI API key and then upload your ebook.
+              Once processed, you’ll be able to navigate through fractal summaries
+              and dive deeper into the text in a structured way.
+            </p>
+          </div>
+        )}
+
         {/* Processing Indicator */}
         {isProcessing && (
           <div className="max-w-md mx-auto mt-8">
-            <ProgressIndicator progress={progress} status="Processing book and generating summaries..." />
+            <ProgressIndicator
+              progress={progress}
+              status="Processing book and generating summaries..."
+            />
           </div>
         )}
-        {/* Error Display */}
+
+        {/* Error Message */}
         {error && (
           <div className="max-w-md mx-auto mt-4 p-4 bg-red-50 rounded-md">
             <p className="text-sm text-red-700">{error}</p>
           </div>
         )}
-        {/* Fractal Book View */}
+
+        {/* Fractal View */}
         {bookStructure && !isProcessing && (
           <div className="mt-6">
-            {/*<Navigation*/}
-            {/* currentPath={currentPath}*/}
-            {/* structure={bookStructure}*/}
-            {/* onNavigate={setCurrentPath}*/}
-            {/*/>*/}
-            <div className="mt-6">
-              <FractalView
-                bookStructure={bookStructure}
-                currentPath={currentPath}
-                onPathChange={setCurrentPath}
-              />
-            </div>
+            <FractalView
+              bookStructure={bookStructure}
+              currentPath={currentPath}
+              onPathChange={setCurrentPath}
+            />
           </div>
         )}
       </main>
